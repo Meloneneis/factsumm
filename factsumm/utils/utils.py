@@ -100,3 +100,15 @@ def score_qags(source_answers: List, summary_answers: List) -> float:
     if not scores:
         return 0.0
     return sum(scores) / len(scores)
+
+def create_sublists(strings, integers):
+    # Initialize a list that will hold all sublists
+    sublists = []
+    # Iterate over each string and its corresponding integer value
+    for string, integer in zip(strings, integers):
+        # Ensure there are enough sublists to accommodate the current integer
+        while len(sublists) <= integer:
+            sublists.append([])
+        # Append the current string to the correct sublist
+        sublists[integer].append(string)
+    return sublists

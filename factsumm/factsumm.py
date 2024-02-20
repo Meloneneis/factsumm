@@ -2,6 +2,7 @@ import os
 import logging
 from itertools import permutations
 from typing import Dict, List, Optional, Set, Tuple, Union
+from tqdm import tqdm
 
 import pysbd
 from sumeval.metrics.rouge import RougeCalculator
@@ -9,7 +10,7 @@ from sumeval.metrics.rouge import RougeCalculator
 from factsumm.utils.module_entity import load_ner, load_rel
 from factsumm.utils.module_question import load_qa, load_qg
 from factsumm.utils.module_sentence import load_bert_score
-from factsumm.utils.utils import Config, score_qags
+from factsumm.utils.utils import Config, score_qags, create_sublists
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -229,25 +230,22 @@ class FactSumm:
             summary (str): generated summary
             verbose (bool, optional): print verbose option. Defaults to False.
             device (str): device info
+            batch_size (int): batch size
 
         """
         if isinstance(self.ner, str):
-            self.ner = load_ner(self.ner, device)
+            self.ner = load_ner(self.ner, device)  # loading a function
 
         if isinstance(self.rel, str):
-            self.rel = load_rel(self.rel, device)
+            self.rel = load_rel(self.rel, device)  # loading a function
 
         source_lines = self._segment_sentence(source)
-        summary_lines = self._segment_sentence(summary)
-
-        # extract per-line named entities
         source_entities = self.ner(source_lines)
+        summary_lines = self._segment_sentence(summary)
         summary_entities = self.ner(summary_lines)
-
         # extract entity-based triple: (head, relation, tail)
         source_facts = self.get_facts(source_lines, source_entities)
         summary_facts = self.get_facts(summary_lines, summary_entities)
-
         # filter out some facts
         source_facts, summary_facts = self._filter_out(
             source_facts,
@@ -274,6 +272,65 @@ class FactSumm:
         logging.info("Fact Score: %s", fact_score)
 
         return source_entities, summary_entities, fact_score
+
+
+    def batch_extract_facts(
+            self,
+            sources: str,
+            summaries: str,
+            batch_size: int
+    ):
+        device = "cuda"
+        if isinstance(self.ner, str):
+            self.ner = load_ner(self.ner, device, batch_size=batch_size)  # loading a function
+        if isinstance(self.rel, str):
+            self.rel = load_rel(self.rel, device, batch_size=batch_size)  # loading a function
+
+        batch_source_lines = []
+        batch_source_idxs = []
+        batch_summary_lines = []
+        batch_summary_idxs = []
+        for i, source in tqdm(enumerate(sources), desc="Processing sources"):
+            src_lines = self._segment_sentence(source)
+            batch_source_lines.extend(src_lines)
+            source_idxs = [i for _ in range(len(src_lines))]
+            batch_source_idxs.extend(source_idxs)
+        for i, summary in tqdm(enumerate(summaries), desc="Processing summaries"):
+            summ_lines = self._segment_sentence(summary)
+            batch_summary_lines.extend(summ_lines)
+            summary_idxs = [i for _ in range(len(summ_lines))]
+            batch_summary_idxs.extend(summary_idxs)
+
+        src_entities = self.ner(batch_source_lines)
+        summ_entities = self.ner(batch_summary_lines)
+
+        batch_source_entities = create_sublists(src_entities, batch_source_idxs)
+        batch_source_lines = create_sublists(batch_source_lines, batch_source_idxs)
+        batch_summary_lines = create_sublists(batch_summary_lines, batch_summary_idxs)
+        batch_summary_entities = create_sublists(summ_entities, batch_summary_idxs)
+
+        fact_scores = []
+        for source_entities, source_lines, summary_lines, summary_entities in tqdm(zip(batch_source_entities, batch_source_lines, batch_summary_lines, batch_summary_entities), desc="Remaining Processing"):
+            # extract entity-based triple: (head, relation, tail)
+            source_facts = self.get_facts(source_lines, source_entities)
+            summary_facts = self.get_facts(summary_lines, summary_entities)
+            # filter out some facts
+            source_facts, summary_facts = self._filter_out(
+                source_facts,
+                summary_facts,
+            )
+
+            common_facts = summary_facts.intersection(source_facts)
+            diff_facts = summary_facts.difference(source_facts)
+
+            if not summary_facts:
+                fact_score = 0.0
+            else:
+                fact_score = len(common_facts) / len(summary_facts)
+
+            fact_scores.append(fact_score)
+        return batch_source_entities, batch_summary_entities, fact_scores
+
 
     def _print_qas(self, mode: str, questions: List[Dict]):
         logging.info("Answers based on %s (Questions are generated from Summary)", mode.capitalize())
@@ -333,6 +390,49 @@ class FactSumm:
         logging.info("QAGS Score: %s\n", qa_score)
 
         return qa_score
+
+    def batch_extract_qas(
+        self,
+        sources: str,
+        summaries: str,
+        batch_size: int,
+    ):
+        device = "cuda"
+
+        if isinstance(self.qg, str) and isinstance(self.qa, str):
+            self.qg = load_qg(self.qg, device, batch_size=batch_size)
+            self.qa = load_qa(self.qa, device, batch_size=batch_size)
+
+        if isinstance(self.ner, str):
+            self.ner = load_ner(self.ner, device, batch_size=batch_size)
+
+        batch_source_lines = []
+        batch_source_idxs = []
+        batch_summary_lines = []
+        batch_summary_idxs = []
+        for i, source in tqdm(enumerate(sources), desc="Processing sources"):
+            src_lines = self._segment_sentence(source)
+            batch_source_lines.extend(src_lines)
+            source_idxs = [i for _ in range(len(src_lines))]
+            batch_source_idxs.extend(source_idxs)
+        for i, summary in tqdm(enumerate(summaries), desc="Processing summaries"):
+            summ_lines = self._segment_sentence(summary)
+            batch_summary_lines.extend(summ_lines)
+            summary_idxs = [i for _ in range(len(summ_lines))]
+            batch_summary_idxs.extend(summary_idxs)
+
+        summ_entities = self.ner(batch_summary_lines)
+
+        batch_summary_entities = create_sublists(summ_entities, batch_summary_idxs)
+        batch_summary_lines = create_sublists(batch_summary_lines, batch_summary_idxs)
+
+        batch_summary_qas = self.qg(batch_summary_lines, batch_summary_entities)
+        batch_source_answers = self.qa(sources, batch_summary_qas)
+        batch_summary_answers = self.qa(summaries, batch_summary_qas)
+
+
+        qa_scores = [score_qags(source_answers, summary_answers) for source_answers, summary_answers in zip(batch_source_answers, batch_summary_answers)]
+        return qa_scores
 
     def calculate_bert_score(
         self,
