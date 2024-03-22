@@ -329,7 +329,7 @@ class FactSumm:
                 fact_score = len(common_facts) / len(summary_facts)
 
             fact_scores.append(fact_score)
-        return batch_source_entities, batch_summary_entities, fact_scores
+        return fact_scores
 
 
     def _print_qas(self, mode: str, questions: List[Dict]):
