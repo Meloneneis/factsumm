@@ -240,9 +240,11 @@ class FactSumm:
             self.rel = load_rel(self.rel, device)  # loading a function
 
         source_lines = self._segment_sentence(source)
-        source_entities = self.ner(source_lines)
         summary_lines = self._segment_sentence(summary)
+
+        source_entities = self.ner(source_lines)
         summary_entities = self.ner(summary_lines)
+
         # extract entity-based triple: (head, relation, tail)
         source_facts = self.get_facts(source_lines, source_entities)
         summary_facts = self.get_facts(summary_lines, summary_entities)
@@ -429,7 +431,6 @@ class FactSumm:
         batch_summary_qas = self.qg(batch_summary_lines, batch_summary_entities)
         batch_source_answers = self.qa(sources, batch_summary_qas)
         batch_summary_answers = self.qa(summaries, batch_summary_qas)
-
 
         qa_scores = [score_qags(source_answers, summary_answers) for source_answers, summary_answers in zip(batch_source_answers, batch_summary_answers)]
         return qa_scores

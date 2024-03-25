@@ -160,8 +160,7 @@ def load_qa(model: str, device: str, batch_size: Optional[int] = None ):
             tokenizer=model,
             framework="pt",
             device=-1 if device == "cpu" else 0,
-            batch_size=batch_size,
-            handle_impossible_answers=True,
+            batch_size=batch_size
         )
     except (HTTPError, OSError):
         logging.warning("Input model is not supported by HuggingFace Hub")
@@ -176,11 +175,11 @@ def load_qa(model: str, device: str, batch_size: Optional[int] = None ):
 
         """
         answers = []
+        qa.handle_impossible_answers = True
         for qa_pair in qa_pairs:
             pred = qa(
                 question=qa_pair["question"],
                 context=context,
-                handle_impossible_answer=True,
             )["answer"]
             answers.append({
                 "question": qa_pair["question"],
@@ -207,10 +206,11 @@ def load_qa(model: str, device: str, batch_size: Optional[int] = None ):
         for i, (context, qa_pairs) in enumerate(zip(contexts, qa_pairs_list)):
             for qa_pair in qa_pairs:
                 all_questions.append({"question": qa_pair["question"], "context": context})
-                all_ref_answers.extend(qa_pair["answer"])
+                all_ref_answers.append(qa_pair["answer"])
                 idx_tracker.append(i)
 
         # Process the batch of questions for the current context
+        qa.handle_impossible_answer = True
         predictions = qa(all_questions)
         predictions = [prediction["answer"] for prediction in predictions]
         # Organize predictions with their corresponding questions and answers
@@ -225,7 +225,6 @@ def load_qa(model: str, device: str, batch_size: Optional[int] = None ):
             sublists[integer].append(element)
         assert len(sublists) == len(contexts)
         return sublists
-
 
     if batch_size is None:
         return lambda context, qa_pair: answer_question(context, qa_pair)

@@ -69,26 +69,45 @@ def load_rel(model: str, device: str, batch_size: Optional[int] = None):
         logging.warning("Input model is not supported by HuggingFace Hub or failed to load. Error: {}".format(e))
         return None
 
-    def extract_relation_single(sentence: Dict) -> List[Tuple]:
-        tokens = tokenizer(
-            sentence["text"],
-            entity_spans=[
-                (sentence["spans"][0][0], sentence["spans"][0][-1]),
-                (sentence["spans"][-1][0], sentence["spans"][-1][-1]),
-            ],
-            return_tensors="pt",
-        ).to(device)
-        outputs = model(**tokens)
-        predicted_id = int(outputs.logits[0].argmax())
-        relation = model.config.id2label[predicted_id]
+    def extract_relation_single(sentences: List) -> List[Tuple]:
+        """
+        Extraction Relation based on Entity Information
 
-        if relation != "no_relation":
-            return [(
-                sentence["text"][sentence["spans"][0][0]:sentence["spans"][0][-1]],
-                relation,
-                sentence["text"][sentence["spans"][-1][0]:sentence["spans"][-1][-1]],
-            )]
-        return []
+        Args:
+            sentence (str): original sentence containing context
+            head_entity (Dict): head entity containing position information
+            tail_entity (Dict): tail entity containing position information
+
+        Returns:
+            List[Tuple]: list of (head_entity, relation, tail_entity) formatted triples
+
+        """
+        triples = []
+
+        # TODO: batchify
+        for sentence in sentences:
+            tokens = tokenizer(
+                sentence["text"],
+                entity_spans=[
+                    (sentence["spans"][0][0], sentence["spans"][0][-1]),
+                    (sentence["spans"][-1][0], sentence["spans"][-1][-1]),
+                ],
+                return_tensors="pt",
+            ).to(device)
+            outputs = model(**tokens)
+            predicted_id = int(outputs.logits[0].argmax())
+            relation = model.config.id2label[predicted_id]
+
+            if relation != "no_relation":
+                triples.append((
+                    sentence["text"]
+                    [sentence["spans"][0][0]:sentence["spans"][0][-1]],
+                    relation,
+                    sentence["text"]
+                    [sentence["spans"][-1][0]:sentence["spans"][-1][-1]],
+                ))
+
+        return triples
 
     def extract_relation_batch(sentences: List[Dict], batch_size: int) -> List[Tuple]:
         triples = []
