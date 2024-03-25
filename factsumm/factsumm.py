@@ -302,8 +302,9 @@ class FactSumm:
             batch_summary_lines.extend(summ_lines)
             summary_idxs = [i for _ in range(len(summ_lines))]
             batch_summary_idxs.extend(summary_idxs)
-
+        print("Getting Source Entities...")
         src_entities = self.ner(batch_source_lines)
+        print("Getting Summary Entities...")
         summ_entities = self.ner(batch_summary_lines)
 
         batch_source_entities = create_sublists(src_entities, batch_source_idxs)
@@ -422,16 +423,18 @@ class FactSumm:
             batch_summary_lines.extend(summ_lines)
             summary_idxs = [i for _ in range(len(summ_lines))]
             batch_summary_idxs.extend(summary_idxs)
-
+        print("Getting entities..")
         summ_entities = self.ner(batch_summary_lines)
 
         batch_summary_entities = create_sublists(summ_entities, batch_summary_idxs)
         batch_summary_lines = create_sublists(batch_summary_lines, batch_summary_idxs)
-
+        print("Generating questions..")
         batch_summary_qas = self.qg(batch_summary_lines, batch_summary_entities)
+        print("Generating source answers..")
         batch_source_answers = self.qa(sources, batch_summary_qas)
+        print("Generating summary answers..")
         batch_summary_answers = self.qa(summaries, batch_summary_qas)
-
+        print("Calculating QAGS Score...")
         qa_scores = [score_qags(source_answers, summary_answers) for source_answers, summary_answers in zip(batch_source_answers, batch_summary_answers)]
         return qa_scores
 
