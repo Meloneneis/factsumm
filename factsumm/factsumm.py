@@ -2,7 +2,7 @@ import os
 import logging
 from itertools import permutations
 from typing import Dict, List, Optional, Set, Tuple, Union
-from tqdm import tqdm
+import torch
 
 import pysbd
 from sumeval.metrics.rouge import RougeCalculator
@@ -280,40 +280,41 @@ class FactSumm:
             self,
             sources: str,
             summaries: str,
-            batch_size: int
+            ner_batch_size: int,
+            rel_batch_size: int,
     ):
         device = "cuda"
         if isinstance(self.ner, str):
-            self.ner = load_ner(self.ner, device, batch_size=batch_size)  # loading a function
+            self.ner = load_ner(self.ner, device, batch_size=ner_batch_size)  # loading a function
         if isinstance(self.rel, str):
-            self.rel = load_rel(self.rel, device, batch_size=batch_size)  # loading a function
+            self.rel = load_rel(self.rel, device, batch_size=rel_batch_size)  # loading a function
 
         batch_source_lines = []
         batch_source_idxs = []
         batch_summary_lines = []
         batch_summary_idxs = []
-        for i, source in tqdm(enumerate(sources), desc="Processing sources"):
+        for i, source in enumerate(sources):
             src_lines = self._segment_sentence(source)
             batch_source_lines.extend(src_lines)
             source_idxs = [i for _ in range(len(src_lines))]
             batch_source_idxs.extend(source_idxs)
-        for i, summary in tqdm(enumerate(summaries), desc="Processing summaries"):
+        for i, summary in enumerate(summaries):
             summ_lines = self._segment_sentence(summary)
             batch_summary_lines.extend(summ_lines)
             summary_idxs = [i for _ in range(len(summ_lines))]
             batch_summary_idxs.extend(summary_idxs)
-        print("Getting Source Entities...")
+        torch.cuda.empty_cache()
         src_entities = self.ner(batch_source_lines)
-        print("Getting Summary Entities...")
+        torch.cuda.empty_cache()
         summ_entities = self.ner(batch_summary_lines)
-
+        torch.cuda.empty_cache()
         batch_source_entities = create_sublists(src_entities, batch_source_idxs)
         batch_source_lines = create_sublists(batch_source_lines, batch_source_idxs)
         batch_summary_lines = create_sublists(batch_summary_lines, batch_summary_idxs)
         batch_summary_entities = create_sublists(summ_entities, batch_summary_idxs)
 
         fact_scores = []
-        for source_entities, source_lines, summary_lines, summary_entities in tqdm(zip(batch_source_entities, batch_source_lines, batch_summary_lines, batch_summary_entities), desc="Remaining Processing"):
+        for source_entities, source_lines, summary_lines, summary_entities in zip(batch_source_entities, batch_source_lines, batch_summary_lines, batch_summary_entities):
             # extract entity-based triple: (head, relation, tail)
             source_facts = self.get_facts(source_lines, source_entities)
             summary_facts = self.get_facts(summary_lines, summary_entities)
@@ -398,43 +399,40 @@ class FactSumm:
         self,
         sources: str,
         summaries: str,
-        batch_size: int,
+        qg_batch_size: int,
+        ner_batch_size: int,
+        qa_batch_size: int,
     ):
         device = "cuda"
 
         if isinstance(self.qg, str) and isinstance(self.qa, str):
-            self.qg = load_qg(self.qg, device, batch_size=batch_size)
-            self.qa = load_qa(self.qa, device, batch_size=batch_size)
+            self.qg = load_qg(self.qg, device, batch_size=qg_batch_size)
+            self.qa = load_qa(self.qa, device, batch_size=qa_batch_size)
 
         if isinstance(self.ner, str):
-            self.ner = load_ner(self.ner, device, batch_size=batch_size)
+            self.ner = load_ner(self.ner, device, batch_size=ner_batch_size)
 
         batch_source_lines = []
         batch_source_idxs = []
         batch_summary_lines = []
         batch_summary_idxs = []
-        for i, source in tqdm(enumerate(sources), desc="Processing sources"):
+        for i, source in enumerate(sources):
             src_lines = self._segment_sentence(source)
             batch_source_lines.extend(src_lines)
             source_idxs = [i for _ in range(len(src_lines))]
             batch_source_idxs.extend(source_idxs)
-        for i, summary in tqdm(enumerate(summaries), desc="Processing summaries"):
+        for i, summary in enumerate(summaries):
             summ_lines = self._segment_sentence(summary)
             batch_summary_lines.extend(summ_lines)
             summary_idxs = [i for _ in range(len(summ_lines))]
             batch_summary_idxs.extend(summary_idxs)
-        print("Getting entities..")
         summ_entities = self.ner(batch_summary_lines)
 
         batch_summary_entities = create_sublists(summ_entities, batch_summary_idxs)
         batch_summary_lines = create_sublists(batch_summary_lines, batch_summary_idxs)
-        print("Generating questions..")
         batch_summary_qas = self.qg(batch_summary_lines, batch_summary_entities)
-        print("Generating source answers..")
         batch_source_answers = self.qa(sources, batch_summary_qas)
-        print("Generating summary answers..")
         batch_summary_answers = self.qa(summaries, batch_summary_qas)
-        print("Calculating QAGS Score...")
         qa_scores = [score_qags(source_answers, summary_answers) for source_answers, summary_answers in zip(batch_source_answers, batch_summary_answers)]
         return qa_scores
 

@@ -1,6 +1,5 @@
 import logging
 from typing import List, Tuple, Dict, Optional
-import tqdm
 import torch
 from requests import HTTPError
 from transformers import LukeForEntityPairClassification, LukeTokenizer, pipeline

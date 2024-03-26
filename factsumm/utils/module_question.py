@@ -1,5 +1,4 @@
 from typing import List, Dict, Optional
-import torch
 import logging
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 from requests.exceptions import HTTPError
@@ -71,8 +70,7 @@ def load_qg(model: str, device: str, batch_size: int = None):
 
         return qa_pairs
 
-    def batch_generate_questions(batch_sentences: List[List[str]], batch_total_entities: List[List[Dict]],
-                                 batch_size: int = 8):
+    def batch_generate_questions(batch_sentences: List[List[str]], batch_total_entities: List[List[Dict]]):
         """
         Generate questions using context and entity information, filling in as many templates to the model as possible to maximize parallelization.
 
@@ -130,7 +128,7 @@ def load_qg(model: str, device: str, batch_size: int = None):
             while len(sublists) <= integer:
                 sublists.append([])
             sublists[integer].append(string)
-        # assert len(sublists) == len(batch_sentences)
+        assert len(sublists) == len(batch_sentences)
         return sublists
 
     if batch_size is not None:
