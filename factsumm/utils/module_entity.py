@@ -29,7 +29,8 @@ def load_ner(model: str, device: str, batch_size: Optional[int] = None) -> objec
             framework="pt",
             device=-1 if device == "cpu" else 0,
             aggregation_strategy="simple",
-            batch_size=batch_size
+            batch_size=batch_size,
+            torch_dtype=torch.bfloat16
         )
     except (HTTPError, OSError):
         logging.warning("Input model is not supported by HuggingFace Hub")
@@ -63,7 +64,7 @@ def load_rel(model: str, device: str, batch_size: Optional[int] = None):
 
     try:
         tokenizer = LukeTokenizer.from_pretrained(model)
-        model = LukeForEntityPairClassification.from_pretrained(model).to(device)
+        model = LukeForEntityPairClassification.from_pretrained(model, torch_dtype=torch.bfloat16).to(device)
     except (HTTPError, OSError) as e:
         logging.warning("Input model is not supported by HuggingFace Hub or failed to load. Error: {}".format(e))
         return None

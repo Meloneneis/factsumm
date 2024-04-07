@@ -212,7 +212,51 @@ class FactSumm:
             if (summary[0], summary[1]) in source_tuple
         }
         return sources, summaries
+    def batch_get_facts(self, batch_lines: List[List[str]], batch_entities: List[List[List[Dict]]]) -> List[Set]:
+        batch_perms = []
+        for lines, entities in zip(batch_lines, batch_entities):
+            perms = self.build_perm(lines, entities)
+            batch_perms.append(perms)
+        flattened_batch_perms = self._flatten(batch_perms)
+        flattened_batch_facts = self.rel(flattened_batch_perms)
+        batch_facts = self._unflatten(flattened_batch_facts, batch_perms)
+        batch_triples = []
 
+        for facts, entities in zip(batch_facts, batch_entities):
+            triples = []
+            for fact, entity in zip(facts, entities):
+                entity_key = {ent["word"]: ent["entity_group"] for ent in entity}
+                filtered_facts = []
+
+                for fac in fact:
+                    if len(fac) == 0:
+                        continue
+                    head, relation, tail = fac
+
+                    head = head.strip()
+                    tail = tail.strip()
+
+                    if head == tail:
+                        continue
+
+                    head_entity_type = entity_key.get(head, None)
+                    tail_entity_type = entity_key.get(tail, None)
+
+                    if head_entity_type is not None and head_entity_type == "PERSON" and not relation.startswith("per:"):
+                        continue
+
+                    if head_entity_type is not None and head_entity_type != "PERSON" and relation.startswith("per:"):
+                        continue
+
+                    if tail_entity_type is not None and tail_entity_type != "PERSON" and "members" in relation:
+                        continue
+
+                    filtered_facts.append(tuple([head, relation, tail]))
+
+                triples.extend(filtered_facts)
+            triples = set(triples)
+            batch_triples.append(triples)
+        return batch_triples
     def extract_facts(
         self,
         source: str,
@@ -284,10 +328,10 @@ class FactSumm:
             rel_batch_size: int,
     ):
         device = "cuda"
+        ner_name = self.ner
         if isinstance(self.ner, str):
             self.ner = load_ner(self.ner, device, batch_size=ner_batch_size)  # loading a function
-        if isinstance(self.rel, str):
-            self.rel = load_rel(self.rel, device, batch_size=rel_batch_size)  # loading a function
+
 
         batch_source_lines = []
         batch_source_idxs = []
@@ -307,6 +351,7 @@ class FactSumm:
         src_entities = self.ner(batch_source_lines)
         torch.cuda.empty_cache()
         summ_entities = self.ner(batch_summary_lines)
+        self.ner = ner_name
         torch.cuda.empty_cache()
         batch_source_entities = create_sublists(src_entities, batch_source_idxs)
         batch_source_lines = create_sublists(batch_source_lines, batch_source_idxs)
@@ -314,10 +359,12 @@ class FactSumm:
         batch_summary_entities = create_sublists(summ_entities, batch_summary_idxs)
 
         fact_scores = []
-        for source_entities, source_lines, summary_lines, summary_entities in zip(batch_source_entities, batch_source_lines, batch_summary_lines, batch_summary_entities):
-            # extract entity-based triple: (head, relation, tail)
-            source_facts = self.get_facts(source_lines, source_entities)
-            summary_facts = self.get_facts(summary_lines, summary_entities)
+        if isinstance(self.rel, str):
+            self.rel = load_rel(self.rel, device, batch_size=rel_batch_size)  # loading a function
+        batch_source_facts = self.batch_get_facts(batch_source_lines, batch_source_entities)
+        batch_summary_facts = self.batch_get_facts(batch_summary_lines, batch_summary_entities)
+
+        for source_facts, summary_facts in zip(batch_source_facts, batch_summary_facts):
             # filter out some facts
             source_facts, summary_facts = self._filter_out(
                 source_facts,
@@ -333,8 +380,9 @@ class FactSumm:
                 fact_score = len(common_facts) / len(summary_facts)
 
             fact_scores.append(fact_score)
+        self.ner = ner_name
+        torch.cuda.empty_cache()
         return fact_scores
-
 
     def _print_qas(self, mode: str, questions: List[Dict]):
         logging.info("Answers based on %s (Questions are generated from Summary)", mode.capitalize())
@@ -404,7 +452,9 @@ class FactSumm:
         qa_batch_size: int,
     ):
         device = "cuda"
-
+        ner_name = self.ner
+        qg_name = self.qg
+        qa_name = self.qa
         if isinstance(self.qg, str) and isinstance(self.qa, str):
             self.qg = load_qg(self.qg, device, batch_size=qg_batch_size)
             self.qa = load_qa(self.qa, device, batch_size=qa_batch_size)
@@ -427,13 +477,20 @@ class FactSumm:
             summary_idxs = [i for _ in range(len(summ_lines))]
             batch_summary_idxs.extend(summary_idxs)
         summ_entities = self.ner(batch_summary_lines)
-
+        torch.cuda.empty_cache()
         batch_summary_entities = create_sublists(summ_entities, batch_summary_idxs)
         batch_summary_lines = create_sublists(batch_summary_lines, batch_summary_idxs)
         batch_summary_qas = self.qg(batch_summary_lines, batch_summary_entities)
+        torch.cuda.empty_cache()
         batch_source_answers = self.qa(sources, batch_summary_qas)
+        torch.cuda.empty_cache()
         batch_summary_answers = self.qa(summaries, batch_summary_qas)
+        torch.cuda.empty_cache()
         qa_scores = [score_qags(source_answers, summary_answers) for source_answers, summary_answers in zip(batch_source_answers, batch_summary_answers)]
+        self.qa = qa_name
+        self.qg = qg_name
+        self.ner = ner_name
+        torch.cuda.empty_cache()
         return qa_scores
 
     def calculate_bert_score(

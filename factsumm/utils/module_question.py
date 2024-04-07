@@ -2,6 +2,8 @@ from typing import List, Dict, Optional
 import logging
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 from requests.exceptions import HTTPError
+import torch
+
 
 def load_qg(model: str, device: str, batch_size: int = None):
     """
@@ -19,7 +21,7 @@ def load_qg(model: str, device: str, batch_size: int = None):
 
     try:
         tokenizer = AutoTokenizer.from_pretrained(model)
-        model = AutoModelForSeq2SeqLM.from_pretrained(model).to(device)
+        model = AutoModelForSeq2SeqLM.from_pretrained(model, torch_dtype=torch.bfloat16).to(device)
     except (HTTPError, OSError) as e:
         logging.warning(f"Input model is not supported by HuggingFace Hub or failed to load. Error: {e}")
         return None
@@ -158,7 +160,8 @@ def load_qa(model: str, device: str, batch_size: Optional[int] = None ):
             tokenizer=model,
             framework="pt",
             device=-1 if device == "cpu" else 0,
-            batch_size=batch_size
+            batch_size=batch_size,
+            torch_dtype=torch.bfloat16
         )
     except (HTTPError, OSError):
         logging.warning("Input model is not supported by HuggingFace Hub")
