@@ -134,6 +134,8 @@ def load_rel(model: str, device: str, batch_size: Optional[int] = None):
                     head_entity = sentence["text"][sentence["spans"][0][0]:sentence["spans"][0][-1]]
                     tail_entity = sentence["text"][sentence["spans"][-1][0]:sentence["spans"][-1][-1]]
                     triples.append((head_entity, relation, tail_entity))
+                else:
+                    triples.append([])
         return triples
 
     if batch_size is not None:
