@@ -3,6 +3,7 @@ import logging
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 from requests.exceptions import HTTPError
 import torch
+from factsumm.utils.utils import unflatten
 
 
 def load_qg(model: str, device: str, batch_size: int = None):
@@ -84,25 +85,23 @@ def load_qg(model: str, device: str, batch_size: int = None):
             List[List[Dict]]: List of lists of question and answer (entity) pairs for each batch, maximizing parallel processing.
         """
         all_templates = []  # Accumulate all templates across all batches
-        idx_tracker = []  # Keep track of entities for each template for pairing with questions
         all_entities = []
-        all_qa_pairs = []  # Store QA pairs for all templates
         all_questions = []
-
+        structure = []
         # Prepare all templates and their corresponding entities
-        i = -1
         for sentences, entities_list in zip(batch_sentences, batch_total_entities):
-            i += 1
+            sub_structure = []
             for sentence, entities in zip(sentences, entities_list):
                 dedup = set()  # Use a set for efficient deduplication
                 for entity_dict in entities:
                     entity = entity_dict["word"]
                     if entity not in dedup:
+                        sub_structure.append(0)
                         dedup.add(entity)
                         template = f"answer: {entity} context: {sentence} </s>"
-                        idx_tracker.append(i)
                         all_templates.append(template)
                         all_entities.append(entity)
+            structure.append(sub_structure)
 
 
         # Process all templates in large batches
@@ -119,19 +118,9 @@ def load_qg(model: str, device: str, batch_size: int = None):
             questions = tokenizer.batch_decode(outputs, skip_special_tokens=True)
             questions = [question.replace("question: ", "") for question in questions]
             all_questions.extend(questions)
-        assert len(all_questions) == len(all_entities)
         all_qa_pairs = [{"question": question, "answer": entity} for question, entity in zip(all_questions, all_entities)]
-
-
-        # this is the create_sublists method
-        sublists = []
-        assert len(all_qa_pairs) == len(idx_tracker)
-        for string, integer in zip(all_qa_pairs, idx_tracker):
-            while len(sublists) <= integer:
-                sublists.append([])
-            sublists[integer].append(string)
-        assert len(sublists) == len(batch_sentences)
-        return sublists
+        batch_qa_pairs = unflatten(all_qa_pairs, structure)
+        return batch_qa_pairs
 
     if batch_size is not None:
         return lambda sentences, entities: batch_generate_questions(sentences, entities)
@@ -201,14 +190,12 @@ def load_qa(model: str, device: str, batch_size: Optional[int] = None ):
             List[List[Dict]]: List of lists containing answers for each question in qa_pairs, for each context.
         """
         all_ref_answers = []
-        idx_tracker = []
         all_questions = []
         # Assuming each context in `contexts` corresponds to a list of QA pairs in `qa_pairs_list`
-        for i, (context, qa_pairs) in enumerate(zip(contexts, qa_pairs_list)):
+        for context, qa_pairs in zip(contexts, qa_pairs_list):
             for qa_pair in qa_pairs:
                 all_questions.append({"question": qa_pair["question"], "context": context})
                 all_ref_answers.append(qa_pair["answer"])
-                idx_tracker.append(i)
 
         # Process the batch of questions for the current context
         qa.handle_impossible_answer = True
@@ -218,14 +205,8 @@ def load_qa(model: str, device: str, batch_size: Optional[int] = None ):
         all_answers = []
         for qa_pair, answer, pred in zip(all_questions, all_ref_answers, predictions):
             all_answers.append({"question": qa_pair["question"], "answer": answer, "prediction": pred if pred != "" else "<unanswerable>"})
-        sublists = []
-        assert len(all_answers) == len(idx_tracker)
-        for element, integer in zip(all_answers, idx_tracker):
-            while len(sublists) <= integer:
-                sublists.append([])
-            sublists[integer].append(element)
-        assert len(sublists) == len(contexts)
-        return sublists
+        batch_answers = unflatten(all_answers, qa_pairs_list)
+        return batch_answers
 
     if batch_size is None:
         return lambda context, qa_pair: answer_question(context, qa_pair)

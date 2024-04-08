@@ -112,3 +112,28 @@ def create_sublists(strings, integers):
         # Append the current string to the correct sublist
         sublists[integer].append(string)
     return sublists
+
+
+def flatten(lst):
+    flattened_list = []
+    for sublist in lst:
+        if isinstance(sublist, list):
+            flattened_list.extend(flatten(sublist))
+        else:
+            flattened_list.append(sublist)
+    return flattened_list
+
+
+def unflatten(lst, structure):
+    if len(lst) == 0:
+        return []
+    if isinstance(structure, list):
+        unflattened_list = []
+        for substructure in structure:
+            if isinstance(substructure, list):
+                unflattened_list.append(unflatten(lst, substructure))
+            else:
+                unflattened_list.append(lst.pop(0))
+        return unflattened_list
+    else:
+        return lst.pop(0)
