@@ -141,7 +141,6 @@ class FactSumm:
         flattened_batch_facts = self.rel(flattened_batch_perms)
         batch_facts = unflatten(flattened_batch_facts, batch_perms)
         batch_triples = []
-        start = time.time()
         for facts, entities in zip(batch_facts, batch_entities):
             triples = []
             for fact, entity in zip(facts, entities):
@@ -176,7 +175,6 @@ class FactSumm:
                 triples.extend(filtered_facts)
             triples = set(triples)
             batch_triples.append(triples)
-        print(f"For loop time: {time.time() - start}")
         return batch_triples
     def _segment_sentence(self, text: str) -> List[str]:
         """
