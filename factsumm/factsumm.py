@@ -372,7 +372,8 @@ class FactSumm:
             self.rel = load_rel(self.rel, device, batch_size=rel_batch_size)  # loading a function
         batch_source_facts = self.batch_get_facts(batch_source_lines, batch_source_entities)
         batch_summary_facts = self.batch_get_facts(batch_summary_lines, batch_summary_entities)
-
+        self.rel = rel_name
+        torch.cuda.empty_cache()
         for source_facts, summary_facts in zip(batch_source_facts, batch_summary_facts):
             # filter out some facts
             source_facts, summary_facts = self._filter_out(
@@ -390,8 +391,7 @@ class FactSumm:
 
             fact_scores.append(fact_score)
         #print(f"Finished remaining processing: {time.time() - start}")
-        self.ner = rel_name
-        torch.cuda.empty_cache()
+        
         return fact_scores
 
 
